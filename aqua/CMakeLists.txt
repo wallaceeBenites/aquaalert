@@ -1,3 +1,19 @@
+# == DO NOT EDIT THE FOLLOWING LINES for the Raspberry Pi Pico VS Code Extension to work ==
+if(WIN32)
+    set(USERHOME $ENV{USERPROFILE})
+else()
+    set(USERHOME $ENV{HOME})
+endif()
+set(sdkVersion 1.5.1)
+set(toolchainVersion 13_2_Rel1)
+set(picotoolVersion 2.0.0)
+set(picoVscode ${USERHOME}/.pico-sdk/cmake/pico-vscode.cmake)
+if (EXISTS ${picoVscode})
+    include(${picoVscode})
+endif()
+# ====================================================================================
+# Generated Cmake Pico project file
+
 cmake_minimum_required(VERSION 3.13)
 
 set(CMAKE_C_STANDARD 11)
@@ -32,9 +48,18 @@ project(blink C CXX ASM)
 pico_sdk_init()
 
 # Add executable. Default name is the project name, version 0.1
-add_executable(blink
-    blink.c
-)
+
+add_executable(blink blink.c )
+
+pico_set_program_name(blink "blink")
+pico_set_program_version(blink "0.1")
+
+# Generate PIO header
+pico_generate_pio_header(blink ${CMAKE_CURRENT_LIST_DIR}/ws2818b.pio)
+
+# Habilita a saída USB para printf
+pico_enable_stdio_usb(blink 1)
+pico_enable_stdio_uart(blink 0)
 
 # Vincula as bibliotecas necessárias
 target_link_libraries(blink 
@@ -43,14 +68,23 @@ target_link_libraries(blink
     hardware_pio  # Biblioteca para PIO (necessária para WS2812)
 )
 
+# Add the standard include files to the build
+target_include_directories(blink PRIVATE
+  ${CMAKE_CURRENT_LIST_DIR}
+)
+
 # Verifica se o suporte ao CYW43 está habilitado
 if (PICO_CYW43_SUPPORTED)
     target_link_libraries(blink pico_cyw43_arch_none)
 endif()
 
+# Add any user requested libraries
+target_link_libraries(blink 
+        hardware_pio
+        hardware_clocks
+        )
+
 # Cria arquivos adicionais (map/bin/hex)
 pico_add_extra_outputs(blink)
 
-# Habilita a saída USB para printf
-pico_enable_stdio_usb(blink 1)
-pico_enable_stdio_uart(blink 0)
+
