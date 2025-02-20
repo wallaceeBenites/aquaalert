@@ -4,99 +4,102 @@
 #include <stdio.h>
 #include "hardware/clocks.h"
 #include "ws2818b.pio.h"
-
+#include "hardware/adc.h"
 
 // Definição dos pinos
 #define BUZZER_A_PIN 21   // Pino do Buzzer A (GP21)
 #define BUZZER_B_PIN 10   // Pino do Buzzer B (GP10)
-#define LED_PIN 7  // Pino da Matriz de LED RGB (GP7)
+#define LED_PIN 7         // Pino da Matriz de LED RGB (GP7)
 #define LED_COUNT 25
 #define BUTTON_ALARM_ON 5  // Botão A (GP5) para ligar alarmes
 #define BUTTON_ALARM_OFF 6 // Botão B (GP6) para desligar alarmes
+#define VSYS_PIN 29        // Pino para leitura da tensão VSYS
+
+// Definições para leitura da tensão VSYS
+#define USB_CONNECTED_VOLTAGE 4.7f  // Consideramos USB conectado acima de 4.7V
+#define NUM_AMOSTRAS 10             // Número de leituras para média móvel
 
 // Codigo referente a matriz de led =================================================================================================================================================
 
 // Definição de pixel GRB
 struct pixel_t {
     uint8_t G, R, B; // Três valores de 8-bits compõem um pixel.
-  };
-  typedef struct pixel_t pixel_t;
-  typedef pixel_t npLED_t; // Mudança de nome de "struct pixel_t" para "npLED_t" por clareza.
-  
-  // Declaração do buffer de pixels que formam a matriz.
-  npLED_t leds[LED_COUNT];
-  
-  // Variáveis para uso da máquina PIO.
-  PIO np_pio;
-  uint sm;
-  
-  /**
-   * Inicializa a máquina PIO para controle da matriz de LEDs.
-   */
-  void npInit(uint pin) {
-  
+};
+typedef struct pixel_t pixel_t;
+typedef pixel_t npLED_t; // Mudança de nome de "struct pixel_t" para "npLED_t" por clareza.
+
+// Declaração do buffer de pixels que formam a matriz.
+npLED_t leds[LED_COUNT];
+
+// Variáveis para uso da máquina PIO.
+PIO np_pio;
+uint sm;
+
+/**
+ * Inicializa a máquina PIO para controle da matriz de LEDs.
+ */
+void npInit(uint pin) {
     // Cria programa PIO.
     uint offset = pio_add_program(pio0, &ws2818b_program);
     np_pio = pio0;
-  
+
     // Toma posse de uma máquina PIO.
     sm = pio_claim_unused_sm(np_pio, false);
     if (sm < 0) {
-      np_pio = pio1;
-      sm = pio_claim_unused_sm(np_pio, true); // Se nenhuma máquina estiver livre, panic!
+        np_pio = pio1;
+        sm = pio_claim_unused_sm(np_pio, true); // Se nenhuma máquina estiver livre, panic!
     }
-  
+
     // Inicia programa na máquina PIO obtida.
     ws2818b_program_init(np_pio, sm, offset, pin, 800000.f);
-  
+
     // Limpa buffer de pixels.
     for (uint i = 0; i < LED_COUNT; ++i) {
-      leds[i].R = 0;
-      leds[i].G = 0;
-      leds[i].B = 0;
+        leds[i].R = 0;
+        leds[i].G = 0;
+        leds[i].B = 0;
     }
-  }
-  
-  /**
-   * Atribui uma cor RGB a um LED.
-   */
-  void npSetLED(const uint index, const uint8_t r, const uint8_t g, const uint8_t b) {
+}
+
+/**
+ * Atribui uma cor RGB a um LED.
+ */
+void npSetLED(const uint index, const uint8_t r, const uint8_t g, const uint8_t b) {
     leds[index].R = r;
     leds[index].G = g;
     leds[index].B = b;
-  }
-  
-  /**
-   * Limpa o buffer de pixels.
-   */
-  void npClear() {
+}
+
+/**
+ * Limpa o buffer de pixels.
+ */
+void npClear() {
     for (uint i = 0; i < LED_COUNT; ++i)
-      npSetLED(i, 0, 0, 0);
-  }
-  
-  /**
-   * Escreve os dados do buffer nos LEDs.
-   */
-  void npWrite() {
+        npSetLED(i, 0, 0, 0);
+}
+
+/**
+ * Escreve os dados do buffer nos LEDs.
+ */
+void npWrite() {
     // Escreve cada dado de 8-bits dos pixels em sequência no buffer da máquina PIO.
     for (uint i = 0; i < LED_COUNT; ++i) {
-      pio_sm_put_blocking(np_pio, sm, leds[i].G);
-      pio_sm_put_blocking(np_pio, sm, leds[i].R);
-      pio_sm_put_blocking(np_pio, sm, leds[i].B);
+        pio_sm_put_blocking(np_pio, sm, leds[i].G);
+        pio_sm_put_blocking(np_pio, sm, leds[i].R);
+        pio_sm_put_blocking(np_pio, sm, leds[i].B);
     }
     sleep_us(100); // Espera 100us, sinal de RESET do datasheet.
-  }
-  
-  int getIndex(int x, int y) {
+}
+
+int getIndex(int x, int y) {
     // Se a linha for par (0, 2, 4), percorremos da esquerda para a direita.
     // Se a linha for ímpar (1, 3), percorremos da direita para a esquerda.
     if (y % 2 == 0) {
-        return 24-(y * 5 + x); // Linha par (esquerda para direita).
+        return 24 - (y * 5 + x); // Linha par (esquerda para direita).
     } else {
-        return 24-(y * 5 + (4 - x)); // Linha ímpar (direita para esquerda).
+        return 24 - (y * 5 + (4 - x)); // Linha ímpar (direita para esquerda).
     }
-  }
-
+}
 
 // Codigo referente ao alarme =================================================================================================================================================
 
@@ -130,7 +133,6 @@ void configurar_pwm() {
 
 // Função para emitir o padrão de bipes
 void emitir_bipes() {
-
     // Matriz de leds 5x5
     int matriz[5][5][3] = {
         {{255, 0, 0}, {255, 0, 0}, {255, 0, 0}, {255, 0, 0}, {255, 0, 0}},
@@ -138,15 +140,15 @@ void emitir_bipes() {
         {{255, 0, 0}, {255, 255, 255}, {255, 0, 0}, {255, 255, 255}, {255, 0, 0}},
         {{255, 0, 0}, {255, 0, 0}, {255, 255, 255}, {255, 0, 0}, {255, 0, 0}},
         {{255, 0, 0}, {255, 0, 0}, {255, 0, 0}, {255, 0, 0}, {255, 0, 0}}
-      };
-      // Desenhando Sprite contido na matriz.c
-    for(int linha = 0; linha < 5; linha++){
-      for(int coluna = 0; coluna < 5; coluna++){
-        int posicao = getIndex(linha, coluna);
-        npSetLED(posicao, matriz[coluna][linha][0], matriz[coluna][linha][1], matriz[coluna][linha][2]);
-      }
+    };
+    // Desenhando Sprite contido na matriz.c
+    for (int linha = 0; linha < 5; linha++) {
+        for (int coluna = 0; coluna < 5; coluna++) {
+            int posicao = getIndex(linha, coluna);
+            npSetLED(posicao, matriz[coluna][linha][0], matriz[coluna][linha][1], matriz[coluna][linha][2]);
+        }
     }
-        
+
     // Aciona os buzzers e o led
     npWrite();
     pwm_set_enabled(slice_num_a, true);
@@ -172,15 +174,10 @@ void iniciar_alerta() {
 
     // Loop infinito para manter o alarme ativado
     while (alarme_ativo) {
-
         emitir_bipes();  // Emitir o padrão de bipes e ligar a matriz de led 
-        
-
-       
 
         // Verificar se o botão B foi pressionado para desligar o alarme
         if (gpio_get(BUTTON_ALARM_OFF) == 0) {
-            
             parar_alerta();  // Chama a função para desligar o alarme
             break;  // Sai do loop
         }
@@ -198,20 +195,27 @@ void parar_alerta() {
 
     // Desativa os Leds 
     npClear();
-    npWrite(); 
+    npWrite();
 
     printf("✅ Alarmes desativados!\n");
 }
 
+// Função para ler a tensão VSYS
+float ler_tensao_vsys() {
+    adc_select_input(2);  // Usa o canal 2
+    uint16_t valor_adc = adc_read();
+    float tensao = valor_adc * 3.3f / (1 << 12);
+    return tensao * 3.0f;
+}
+
 int main() {
     stdio_init_all();
+    adc_init();
+    adc_gpio_init(VSYS_PIN);
 
     // Inicializa matriz de LEDs NeoPixel.
     npInit(LED_PIN);
     npClear();
-
-    // Aqui, você desenha nos LEDs.
-
     npWrite(); // Escreve os dados nos LEDs.
 
     // Inicialização dos pinos
@@ -232,11 +236,49 @@ int main() {
     // Configura o PWM nos buzzers
     configurar_pwm();
 
-    while (1) {
-        if (gpio_get(BUTTON_ALARM_ON) == 0 && !alarme_ativo) {  // Se o botão A for pressionado(simula queda de energia) e o alarme estiver desligado 
+    float soma_tensao = 0;
+    float leituras[NUM_AMOSTRAS] = {0};
+    int indice = 0;
+    bool usb_conectado = true;
+    int leituras_desconectado = 0;
 
+    while (1) {
+        // Verifica se o botão A foi pressionado para ativar o alarme
+        if (gpio_get(BUTTON_ALARM_ON) == 0 && !alarme_ativo) {
             iniciar_alerta();
             sleep_ms(300);  // Debounce básico
+        }
+
+        // Verifica a tensão VSYS para detectar desconexão do USB
+        float tensao_vsys = ler_tensao_vsys();
+
+        soma_tensao -= leituras[indice];
+        leituras[indice] = tensao_vsys;
+        soma_tensao += tensao_vsys;
+        indice = (indice + 1) % NUM_AMOSTRAS;
+
+        float media_tensao = soma_tensao / NUM_AMOSTRAS;
+
+        printf("Média Tensão VSYS: %.2f V\n", media_tensao);
+
+        if (media_tensao < USB_CONNECTED_VOLTAGE) {
+            leituras_desconectado++;
+        } else {
+            leituras_desconectado = 0;
+        }
+
+        if (leituras_desconectado >= NUM_AMOSTRAS) {
+            if (usb_conectado) {
+                printf("USB desconectado! Emitindo bip de alerta...\n");
+                iniciar_alerta();
+            }
+            usb_conectado = false;
+        } else {
+            if (!usb_conectado) {
+                parar_alerta();
+                printf("USB reconectado!\n");
+            }
+            usb_conectado = true;
         }
 
         sleep_ms(100);
